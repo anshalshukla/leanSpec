@@ -19,4 +19,4 @@ class Validator(Container):
         else:
             scheme = PROD_SIGNATURE_SCHEME
 
-        return scheme.config.deserialize_public_key(bytes(self.pubkey))
+        return scheme.deserialize_public_key(bytes(self.pubkey))

@@ -18,11 +18,11 @@ class Signature(Bytes3100):
                 scheme = TEST_SIGNATURE_SCHEME
                 # TEST_CONFIG expects 796 bytes, but Signature is always 3100 bytes.
                 # Slice to the expected size for test config, assumes padding to the right.
-                signature_data = bytes(self)[: scheme.config.SIGNATURE_SIZE_BYTES]
-                signature = scheme.config.deserialize_signature(signature_data)
+                signature_data = bytes(self)[: scheme.config.SIGNATURE_LEN_BYTES]
+                signature = scheme.deserialize_signature(signature_data)
             else:
                 scheme = PROD_SIGNATURE_SCHEME
-                signature = scheme.config.deserialize_signature(self)
+                signature = scheme.deserialize_signature(self)
 
             return scheme.verify(public_key, epoch, message, signature)
         except Exception:
