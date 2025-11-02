@@ -4,18 +4,26 @@ from __future__ import annotations
 
 from lean_spec.types import Bytes3100
 
+from ..xmss.containers import PublicKey
+from ..xmss.interface import PROD_SIGNATURE_SCHEME, TEST_SIGNATURE_SCHEME
+
 
 class Signature(Bytes3100):
     """Represents aggregated signature produced by the leanVM (SNARKs in the future)."""
 
-    @staticmethod
-    def is_valid(signature: Signature) -> bool:
-        """Return True when the placeholder signature is the zero value."""
-        # TODO: Replace placeholder check once aggregated signatures are
-        # wired in as part of the multi-proof integration work.
-        return signature == Signature.zero()
+    def verify(self, public_key: PublicKey, epoch: int, message: bytes, test: bool = False) -> bool:
+        """Verify the signature using XMSS verification algorithm."""
+        try:
+            if test:
+                scheme = TEST_SIGNATURE_SCHEME
+                # TEST_CONFIG expects 796 bytes, but Signature is always 3100 bytes.
+                # Slice to the expected size for test config, assumes padding to the right.
+                signature_data = bytes(self)[: scheme.config.SIGNATURE_SIZE_BYTES]
+                signature = scheme.config.deserialize_signature(signature_data)
+            else:
+                scheme = PROD_SIGNATURE_SCHEME
+                signature = scheme.config.deserialize_signature(self)
 
-    @classmethod
-    def zero(cls) -> Signature:
-        """Return the zero (placeholder) signature."""
-        return cls(Bytes3100.zero())
+            return scheme.verify(public_key, epoch, message, signature)
+        except Exception:
+            return False

@@ -211,9 +211,69 @@ class Store(Container):
         block: Block,
         signatures: BlockSignatures,
     ) -> bool:
-        """Temporary stub for aggregated signature validation."""
-        # TODO: Integrate actual aggregated signature verification.
-        return all(Signature.is_valid(signature) for signature in signatures)
+        """
+        Validate block signatures.
+
+        Args:
+            block: Block to validate.
+            signatures: Block signatures to validate.
+
+        Returns:
+            True if block signatures are valid, False otherwise.
+        """
+        attestations = list(block.body.attestations)
+
+        # +1 for the proposer signature
+        if len(signatures) != len(attestations) + 1:
+            return False
+
+        # Validate each signature
+        for index, attestation in enumerate(attestations):
+            signature = signatures[index]
+            validator_id = attestation.validator_id.as_int()
+
+            state = self.states[block.state_root]
+            validators = state.validators
+
+            if validator_id >= len(validators):
+                return False
+
+            validator = validators[validator_id]
+
+            try:
+                pubkey = validator.get_pubkey()
+            except (ValueError, Exception):
+                return False
+
+            message = bytes(hash_tree_root(attestation))
+            epoch = attestation.data.slot.as_int()
+
+            if not signature.verify(pubkey, epoch, message):
+                return False
+
+        return True
+
+    def _validate_proposer_signature(
+        self,
+        proposer_attestation: Attestation,
+        proposer_signature: Signature,
+    ) -> bool:
+        """
+        Validate proposer signature.
+
+        Args:
+            proposer_attestation: Proposer attestation to validate.
+            proposer_signature: Proposer signature to validate.
+
+        Returns:
+            True if proposer signature is valid, False otherwise.
+        """
+        validator_id = proposer_attestation.validator_id.as_int()
+        validator = self.states[self.head].validators[validator_id]
+        pubkey = validator.get_pubkey()
+        message = bytes(hash_tree_root(proposer_attestation))
+        epoch = proposer_attestation.data.slot.as_int()
+        return proposer_signature.verify(pubkey, epoch, message)
 
     def process_block(self, signed_block_with_attestation: SignedBlockWithAttestation) -> None:
         """
@@ -240,7 +300,16 @@ class Store(Container):
         # sync parent chain if not available before adding block to forkchoice
         assert parent_state is not None, "Parent state not found - sync parent chain first"
 
+        # Validate block signatures
         valid_signatures = self._validate_block_signatures(block, signatures)
+
+        # Validate proposer signature
+        proposer_signature = signatures[len(block.body.attestations)]
+        valid_proposer_attestation = self._validate_proposer_signature(
+            proposer_attestation,
+            proposer_signature,
+        )
+        assert valid_proposer_attestation, "Proposer attestation is not valid"
 
         # Get post state from STF (State Transition Function)
         state = copy.deepcopy(parent_state).state_transition(block, valid_signatures)
@@ -264,7 +333,6 @@ class Store(Container):
         # Update forkchoice head
         self.update_head()
 
-        proposer_signature = signatures[len(block.body.attestations)]
         # the proposer attestation for the current slot and block as head is to be
         # treated as the attestation is independently casted in the second interval
         signed_proposer_attestation = SignedAttestation(
